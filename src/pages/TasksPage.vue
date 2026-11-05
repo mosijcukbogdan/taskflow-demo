@@ -1,52 +1,235 @@
 
+<script setup>
+import '../css/task-components.css'
+import { ref, computed } from 'vue'
+import AppTabbar from '../components/AppTabbar.vue'
+import TaskCard from '../components/TaskCard.vue'
+import TaskCounter from '../components/TaskCounter.vue'
+import {
+  taskState,
+  setTaskStatus,
+  setTaskPriority
+} from '../store/tasks'
+
+const selectedStatus = ref('all')
+const selectedPriority = ref('all')
+const selectedTaskId = ref(null)
+const sortOrder = ref('default')
+
+const statusOptions = [
+  { value: 'all', label: 'Усі' },
+  { value: 'todo', label: 'Заплановано' },
+  { value: 'progress', label: 'У роботі' },
+  { value: 'done', label: 'Виконано' }
+]
+
+const priorityOptions = [
+  { value: 'all', label: 'Усі' },
+  { value: 'low', label: 'Низький' },
+  { value: 'medium', label: 'Середній' },
+  { value: 'high', label: 'Високий' }
+]
+
+const sortOptions = [
+  { value: 'default', label: 'За замовчуванням' },
+  { value: 'high', label: 'Високий → Низький' },
+  { value: 'low', label: 'Низький → Високий' }
+]
+
+const priorityOrder = {
+  low: 1,
+  medium: 2,
+  high: 3
+}
+
+const filteredTasks = computed(() => {
+  const result = taskState.tasks.filter((task) => (
+    (selectedStatus.value === 'all' ||
+      task.status === selectedStatus.value) &&
+    (selectedPriority.value === 'all' ||
+      task.priority === selectedPriority.value)
+  ))
+
+  if (sortOrder.value === 'high') {
+    result.sort((a, b) =>
+      priorityOrder[b.priority] - priorityOrder[a.priority]
+      || a.id - b.id
+    )
+  }
+
+  if (sortOrder.value === 'low') {
+    result.sort((a, b) =>
+      priorityOrder[a.priority] - priorityOrder[b.priority]
+      || a.id - b.id
+    )
+  }
+
+  return result
+})
+
+const selectedTask = computed(() =>
+  taskState.tasks.find(
+    (task) => task.id === selectedTaskId.value
+  )
+)
+
+function handleStatusChange(payload) {
+  setTaskStatus(payload)
+}
+
+function handlePriorityChange(payload) {
+  setTaskPriority(payload)
+}
+
+function handleTaskSelect(payload) {
+  selectedTaskId.value = payload.id
+}
+</script>
+
 <template>
-  <f7-page name="tasks">
+  <f7-page name="tasks" class="tf3-page">
     <f7-navbar title="Мої завдання" />
 
-    <div class="app-content">
-      <div class="page-heading">
-        <h1>Завдання</h1>
-        <p>Список поточних завдань</p>
-      </div>
+    <div class="tf3-container">
+      <section class="tf3-hero">
+        <div class="tf3-eyebrow">
+          TASKFLOW / TASK MANAGER
+        </div>
 
-      <div class="task-list">
-        <div
-          v-for="task in tasks"
-          :key="task.id"
-          class="task-row task-row-detail"
-        >
-          <f7-icon
-            :f7="task.completed ? 'checkmark_circle_fill' : 'circle'"
-            :class="{ 'completed-icon': task.completed }"
-          />
+        <h1>Мої завдання</h1>
 
-          <div class="task-details">
-            <div class="task-title">
-              {{ task.title }}
-            </div>
+        <p>
+          Керуйте завданнями, статусами
+          та пріоритетами.
+        </p>
+      </section>
 
-            <div class="task-description">
-              {{ task.description }}
-            </div>
+      <section class="tf3-filters">
+        <div class="tf3-filter-group">
+          <div class="tf3-filter-title">
+            Фільтр за статусом
+          </div>
 
-            <div class="task-status">
-              {{ task.completed ? 'Виконано' : 'Очікує виконання' }}
-            </div>
+          <div class="tf3-filter-buttons">
+            <button
+              v-for="option in statusOptions"
+              :key="option.value"
+              type="button"
+              class="tf3-filter-button"
+              :class="{
+                'is-active': selectedStatus === option.value
+              }"
+              :aria-pressed="selectedStatus === option.value"
+              @click="selectedStatus = option.value"
+            >
+              {{ option.label }}
+            </button>
           </div>
         </div>
-      </div>
 
-      <p class="helper-text">
-        Створення, редагування та видалення завдань —
-        у наступних заняттях.
-      </p>
+        <div class="tf3-filter-group">
+          <div class="tf3-filter-title">
+            Фільтр за пріоритетом
+          </div>
+
+          <div class="tf3-filter-buttons">
+            <button
+              v-for="option in priorityOptions"
+              :key="option.value"
+              type="button"
+              class="tf3-filter-button"
+              :class="{
+                'is-active': selectedPriority === option.value
+              }"
+              :aria-pressed="selectedPriority === option.value"
+              @click="selectedPriority = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="tf3-filter-group">
+          <div class="tf3-filter-title">
+            Сортування за пріоритетом
+          </div>
+
+          <div class="tf3-filter-buttons">
+            <button
+              v-for="option in sortOptions"
+              :key="option.value"
+              type="button"
+              class="tf3-filter-button"
+              :class="{
+                'is-active': sortOrder === option.value
+              }"
+              :aria-pressed="sortOrder === option.value"
+              @click="sortOrder = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="tf3-section">
+        <div class="tf3-section-heading">
+          <div>
+            <div class="tf3-eyebrow">
+              TASK LIST
+            </div>
+
+            <h2>Список завдань</h2>
+          </div>
+
+          <TaskCounter :count="filteredTasks.length" />
+        </div>
+
+        <div
+          v-if="selectedTask"
+          class="tf3-selected-task"
+          role="status"
+        >
+          Обрано завдання:
+          <strong>{{ selectedTask.title }}</strong>
+        </div>
+
+        <div
+          v-if="filteredTasks.length"
+          class="tf3-task-grid"
+        >
+          <TaskCard
+            v-for="task in filteredTasks"
+            :key="task.id"
+            :task="task"
+            @status-change="handleStatusChange"
+            @priority-change="handlePriorityChange"
+            @task-select="handleTaskSelect"
+          />
+        </div>
+
+        <div v-else class="tf3-empty">
+          За обраними фільтрами
+          завдань не знайдено.
+        </div>
+      </section>
     </div>
 
     <AppTabbar active="tasks" />
   </f7-page>
 </template>
 
-<script setup>
-import AppTabbar from '../components/AppTabbar.vue';
-import { tasks } from '../data/tasks.js';
-</script>
+<style scoped>
+.tf3-selected-task {
+  margin-bottom: 18px;
+  padding: 16px;
+  background: #183451;
+  border: 1px solid #35b4e5;
+  border-radius: 12px;
+  color: #edf4ff;
+}
+
+.tf3-selected-task strong {
+  color: #58c7ef;
+}
+</style>
