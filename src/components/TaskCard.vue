@@ -8,17 +8,32 @@ const props = defineProps({
   task: {
     type: Object,
     required: true
+  },
+  editable: {
+    type: Boolean,
+    default: false
   }
 })
 
 const emit = defineEmits([
   'status-change',
   'priority-change',
-  'task-select'
+  'task-select',
+  'edit'
 ])
 
 const statusSequence = ['todo', 'progress', 'done']
 const prioritySequence = ['low', 'medium', 'high']
+
+const categoryLabels = {
+  study: 'Навчання',
+  work: 'Робота',
+  personal: 'Особисте'
+}
+
+const categoryText = computed(() =>
+  categoryLabels[props.task.category] || 'Навчання'
+)
 
 const statusActionText = computed(() => ({
   todo: 'Взяти в роботу',
@@ -69,6 +84,10 @@ function selectTask() {
     id: props.task.id
   })
 }
+
+function editTask() {
+  emit('edit', props.task.id)
+}
 </script>
 
 <template>
@@ -93,6 +112,16 @@ function selectTask() {
           </span>
 
           <PriorityBadge :priority="task.priority" />
+        </div>
+
+        <div class="tf3-meta-item">
+          <span class="tf3-meta-label">
+            Категорія:
+          </span>
+
+          <span class="tf3-category">
+            {{ categoryText }}
+          </span>
         </div>
 
         <div class="tf3-meta-date">
@@ -124,7 +153,28 @@ function selectTask() {
         >
           Обрати завдання
         </button>
+
+        <button
+          v-if="editable"
+          type="button"
+          class="tf3-action"
+          @click="editTask"
+        >
+          Редагувати
+        </button>
       </div>
     </f7-card-content>
   </f7-card>
 </template>
+
+<style scoped>
+.tf3-category {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: 20px;
+  background: #253c60;
+  color: #bbd5ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+</style>

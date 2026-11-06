@@ -1,12 +1,18 @@
 
 <script setup>
 import '../css/task-components.css'
-import { ref, computed } from 'vue'
+import '../css/task-form.css'
+
+import { computed, nextTick, ref } from 'vue'
 import AppTabbar from '../components/AppTabbar.vue'
 import TaskCard from '../components/TaskCard.vue'
 import TaskCounter from '../components/TaskCounter.vue'
+import TaskForm from '../components/TaskForm.vue'
+
 import {
   taskState,
+  addTask,
+  updateTask,
   setTaskStatus,
   setTaskPriority
 } from '../store/tasks'
@@ -15,6 +21,12 @@ const selectedStatus = ref('all')
 const selectedPriority = ref('all')
 const selectedTaskId = ref(null)
 const sortOrder = ref('default')
+const searchQuery = ref('')
+
+const formVisible = ref(false)
+const editingId = ref(null)
+const formAnchor = ref(null)
+const feedback = ref('')
 
 const statusOptions = [
   { value: 'all', label: 'Усі' },
@@ -43,12 +55,22 @@ const priorityOrder = {
 }
 
 const filteredTasks = computed(() => {
-  const result = taskState.tasks.filter((task) => (
-    (selectedStatus.value === 'all' ||
-      task.status === selectedStatus.value) &&
-    (selectedPriority.value === 'all' ||
-      task.priority === selectedPriority.value)
-  ))
+  const query = searchQuery.value.trim().toLocaleLowerCase('uk-UA')
+
+  const result = taskState.tasks.filter((task) => {
+    const matchesStatus =
+      selectedStatus.value === 'all' ||
+      task.status === selectedStatus.value
+
+    const matchesPriority =
+      selectedPriority.value === 'all' ||
+      task.priority === selectedPriority.value
+
+    const matchesSearch =
+      task.title.toLocaleLowerCase('uk-UA').includes(query)
+
+    return matchesStatus && matchesPriority && matchesSearch
+  })
 
   if (sortOrder.value === 'high') {
     result.sort((a, b) =>
@@ -70,7 +92,13 @@ const filteredTasks = computed(() => {
 const selectedTask = computed(() =>
   taskState.tasks.find(
     (task) => task.id === selectedTaskId.value
-  )
+  ) ?? null
+)
+
+const editingTask = computed(() =>
+  taskState.tasks.find(
+    (task) => task.id === editingId.value
+  ) ?? null
 )
 
 function handleStatusChange(payload) {
@@ -83,6 +111,65 @@ function handlePriorityChange(payload) {
 
 function handleTaskSelect(payload) {
   selectedTaskId.value = payload.id
+}
+
+async function scrollToForm() {
+  await nextTick()
+
+  formAnchor.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  })
+}
+
+async function createTask() {
+  formVisible.value = false
+  editingId.value = null
+  feedback.value = ''
+
+  await nextTick()
+  formVisible.value = true
+  await scrollToForm()
+}
+
+async function editTask(id) {
+  formVisible.value = false
+  editingId.value = id
+  feedback.value = ''
+
+  await nextTick()
+  formVisible.value = true
+  await scrollToForm()
+}
+
+function cancelForm() {
+  formVisible.value = false
+  editingId.value = null
+}
+
+function saveTask(data) {
+  const isEditing = editingId.value !== null
+
+  const saved = isEditing
+    ? updateTask({ id: editingId.value, ...data })
+    : addTask(data)
+
+  if (!saved) {
+    feedback.value =
+      'Не вдалося зберегти завдання. Перевірте дані форми.'
+    return
+  }
+
+  feedback.value = isEditing
+    ? `Завдання «${saved.title}» оновлено.`
+    : `Завдання «${saved.title}» створено.`
+
+  cancelForm()
+
+  selectedStatus.value = 'all'
+  selectedPriority.value = 'all'
+  searchQuery.value = ''
+  selectedTaskId.value = saved.id
 }
 </script>
 
@@ -102,9 +189,57 @@ function handleTaskSelect(payload) {
           Керуйте завданнями, статусами
           та пріоритетами.
         </p>
+
+        <button
+          type="button"
+          class="tf4-new-task"
+          @click="createTask"
+        >
+          + Додати завдання
+        </button>
+      </section>
+
+      <p
+        v-if="feedback"
+        class="tf4-feedback"
+        role="status"
+      >
+        {{ feedback }}
+      </p>
+
+      <section
+        v-if="formVisible"
+        ref="formAnchor"
+        class="tf4-form-section"
+      >
+        <TaskForm
+          :key="editingId ?? 'new'"
+          :task="editingTask"
+          @save="saveTask"
+          @cancel="cancelForm"
+        />
       </section>
 
       <section class="tf3-filters">
+
+        <div class="tf3-filter-group">
+          <label
+            for="task-search"
+            class="tf3-filter-title"
+          >
+            Пошук завдань за назвою
+          </label>
+
+          <input
+            id="task-search"
+            v-model="searchQuery"
+            class="tf4-search-input"
+            type="search"
+            placeholder="Введіть назву завдання..."
+            autocomplete="off"
+          />
+        </div>
+
         <div class="tf3-filter-group">
           <div class="tf3-filter-title">
             Фільтр за статусом
@@ -202,9 +337,11 @@ function handleTaskSelect(payload) {
             v-for="task in filteredTasks"
             :key="task.id"
             :task="task"
+            :editable="true"
             @status-change="handleStatusChange"
             @priority-change="handlePriorityChange"
             @task-select="handleTaskSelect"
+            @edit="editTask"
           />
         </div>
 
@@ -231,5 +368,27 @@ function handleTaskSelect(payload) {
 
 .tf3-selected-task strong {
   color: #58c7ef;
+}
+
+.tf4-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 15px;
+  border: 1px solid #42617d;
+  border-radius: 10px;
+  background: #0c192b;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.tf4-search-input::placeholder {
+  color: #8fa7bf;
+}
+
+.tf4-search-input:focus {
+  outline: 2px solid #49bce7;
+  outline-offset: 2px;
 }
 </style>
