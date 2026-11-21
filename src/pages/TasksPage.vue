@@ -20,7 +20,7 @@ import {
 const selectedStatus = ref('all')
 const selectedPriority = ref('all')
 const selectedTaskId = ref(null)
-const sortOrder = ref('default')
+const sortOrder = ref('newest')
 const searchQuery = ref('')
 
 const formVisible = ref(false)
@@ -43,9 +43,11 @@ const priorityOptions = [
 ]
 
 const sortOptions = [
-  { value: 'default', label: 'За замовчуванням' },
-  { value: 'high', label: 'Високий → Низький' },
-  { value: 'low', label: 'Низький → Високий' }
+  { value: 'newest', label: 'Спочатку нові' },
+  { value: 'title', label: 'За назвою (А–Я)' },
+  { value: 'priority', label: 'Високий → Низький' },
+  { value: 'low', label: 'Низький → Високий' },
+  { value: 'dueDate', label: 'За терміном виконання' }
 ]
 
 const priorityOrder = {
@@ -55,7 +57,9 @@ const priorityOrder = {
 }
 
 const filteredTasks = computed(() => {
-  const query = searchQuery.value.trim().toLocaleLowerCase('uk-UA')
+  const query = searchQuery.value
+    .trim()
+    .toLocaleLowerCase('uk-UA')
 
   const result = taskState.tasks.filter((task) => {
     const matchesStatus =
@@ -66,27 +70,46 @@ const filteredTasks = computed(() => {
       selectedPriority.value === 'all' ||
       task.priority === selectedPriority.value
 
-    const matchesSearch =
-      task.title.toLocaleLowerCase('uk-UA').includes(query)
+    const searchableText =
+      `${task.title} ${task.description ?? ''}`
+        .toLocaleLowerCase('uk-UA')
 
-    return matchesStatus && matchesPriority && matchesSearch
+    const matchesSearch =
+      !query || searchableText.includes(query)
+
+    return matchesStatus &&
+      matchesPriority &&
+      matchesSearch
   })
 
-  if (sortOrder.value === 'high') {
-    result.sort((a, b) =>
-      priorityOrder[b.priority] - priorityOrder[a.priority]
-      || a.id - b.id
-    )
-  }
+  return result.sort((a, b) => {
+    if (sortOrder.value === 'title') {
+      return a.title.localeCompare(b.title, 'uk-UA') ||
+        a.id - b.id
+    }
 
-  if (sortOrder.value === 'low') {
-    result.sort((a, b) =>
-      priorityOrder[a.priority] - priorityOrder[b.priority]
-      || a.id - b.id
-    )
-  }
+    if (sortOrder.value === 'priority') {
+      return priorityOrder[b.priority] -
+        priorityOrder[a.priority] ||
+        b.id - a.id
+    }
 
-  return result
+    if (sortOrder.value === 'low') {
+      return priorityOrder[a.priority] -
+        priorityOrder[b.priority] ||
+        b.id - a.id
+    }
+
+    if (sortOrder.value === 'dueDate') {
+      const first = a.dueDate || '9999-12-31'
+      const second = b.dueDate || '9999-12-31'
+
+      return first.localeCompare(second) ||
+        b.id - a.id
+    }
+
+    return b.id - a.id
+  })
 })
 
 const selectedTask = computed(() =>
@@ -111,6 +134,13 @@ function handlePriorityChange(payload) {
 
 function handleTaskSelect(payload) {
   selectedTaskId.value = payload.id
+}
+
+function resetFilters() {
+  selectedStatus.value = 'all'
+  selectedPriority.value = 'all'
+  sortOrder.value = 'newest'
+  searchQuery.value = ''
 }
 
 async function scrollToForm() {
@@ -151,7 +181,7 @@ function saveTask(data) {
   const isEditing = editingId.value !== null
 
   const saved = isEditing
-    ? updateTask({ id: editingId.value, ...data })
+    ? updateTask({ ...data, id: editingId.value })
     : addTask(data)
 
   if (!saved) {
@@ -160,16 +190,55 @@ function saveTask(data) {
     return
   }
 
+  const savedTask = typeof saved === 'object'
+    ? saved
+    : isEditing
+      ? taskState.tasks.find(
+          (task) => task.id === editingId.value
+        )
+      : taskState.tasks[0]
+
+  const savedTitle = savedTask?.title ?? data.title
+
   feedback.value = isEditing
-    ? `Завдання «${saved.title}» оновлено.`
-    : `Завдання «${saved.title}» створено.`
+    ? `Завдання «${savedTitle}» оновлено.`
+    : `Завдання «${savedTitle}» створено.`
 
   cancelForm()
+  resetFilters()
 
-  selectedStatus.value = 'all'
-  selectedPriority.value = 'all'
-  searchQuery.value = ''
-  selectedTaskId.value = saved.id
+  selectedTaskId.value = savedTask?.id ?? null
+}
+
+function handleDelete(id) {
+  const taskId = Number(id)
+
+  const index = taskState.tasks.findIndex(
+    (task) => task.id === taskId
+  )
+
+  if (index === -1) return
+
+  const task = taskState.tasks[index]
+
+  const confirmed = window.confirm(
+    `Ви впевнені, що хочете видалити завдання «${task.title}»?`
+  )
+
+  if (!confirmed) return
+
+  taskState.tasks.splice(index, 1)
+
+  if (selectedTaskId.value === taskId) {
+    selectedTaskId.value = null
+  }
+
+  if (editingId.value === taskId) {
+    cancelForm()
+  }
+
+  feedback.value =
+    `Завдання «${task.title}» видалено.`
 }
 </script>
 
@@ -186,8 +255,8 @@ function saveTask(data) {
         <h1>Мої завдання</h1>
 
         <p>
-          Керуйте завданнями, статусами
-          та пріоритетами.
+          Керуйте завданнями, знаходьте,
+          сортуйте та редагуйте їх.
         </p>
 
         <button
@@ -221,13 +290,12 @@ function saveTask(data) {
       </section>
 
       <section class="tf3-filters">
-
         <div class="tf3-filter-group">
           <label
             for="task-search"
             class="tf3-filter-title"
           >
-            Пошук завдань за назвою
+            Пошук за назвою та описом
           </label>
 
           <input
@@ -235,7 +303,7 @@ function saveTask(data) {
             v-model="searchQuery"
             class="tf4-search-input"
             type="search"
-            placeholder="Введіть назву завдання..."
+            placeholder="Введіть назву або опис..."
             autocomplete="off"
           />
         </div>
@@ -286,7 +354,7 @@ function saveTask(data) {
 
         <div class="tf3-filter-group">
           <div class="tf3-filter-title">
-            Сортування за пріоритетом
+            Сортування завдань
           </div>
 
           <div class="tf3-filter-buttons">
@@ -305,6 +373,16 @@ function saveTask(data) {
             </button>
           </div>
         </div>
+
+        <div class="tf3-filter-group">
+          <button
+            type="button"
+            class="tf5-reset-button"
+            @click="resetFilters"
+          >
+            Скинути фільтри
+          </button>
+        </div>
       </section>
 
       <section class="tf3-section">
@@ -317,7 +395,13 @@ function saveTask(data) {
             <h2>Список завдань</h2>
           </div>
 
-          <TaskCounter :count="filteredTasks.length" />
+          <div class="tf5-counter-group">
+            <TaskCounter :count="filteredTasks.length" />
+
+            <span class="tf5-total-counter">
+              із {{ taskState.tasks.length }}
+            </span>
+          </div>
         </div>
 
         <div
@@ -342,12 +426,22 @@ function saveTask(data) {
             @priority-change="handlePriorityChange"
             @task-select="handleTaskSelect"
             @edit="editTask"
+            @delete="handleDelete"
           />
         </div>
 
         <div v-else class="tf3-empty">
-          За обраними фільтрами
-          завдань не знайдено.
+          <p>
+            За поточними умовами завдань не знайдено.
+          </p>
+
+          <button
+            type="button"
+            class="tf5-reset-button"
+            @click="resetFilters"
+          >
+            Показати всі завдання
+          </button>
         </div>
       </section>
     </div>
@@ -390,5 +484,34 @@ function saveTask(data) {
 .tf4-search-input:focus {
   outline: 2px solid #49bce7;
   outline-offset: 2px;
+}
+
+.tf5-reset-button {
+  min-height: 42px;
+  padding: 10px 20px;
+  border: 1px solid #49bce7;
+  border-radius: 10px;
+  background: #126b96;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tf5-reset-button:hover {
+  background: #168bbd;
+}
+
+.tf5-counter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tf5-total-counter {
+  color: #60758d;
+  font-size: 14px;
 }
 </style>

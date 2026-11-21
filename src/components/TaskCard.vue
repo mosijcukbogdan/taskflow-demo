@@ -19,7 +19,8 @@ const emit = defineEmits([
   'status-change',
   'priority-change',
   'task-select',
-  'edit'
+  'edit',
+  'delete'
 ])
 
 const statusSequence = ['todo', 'progress', 'done']
@@ -88,6 +89,10 @@ function selectTask() {
 function editTask() {
   emit('edit', props.task.id)
 }
+
+function requestDelete() {
+  emit('delete', props.task.id)
+}
 </script>
 
 <template>
@@ -102,7 +107,7 @@ function editTask() {
       </div>
 
       <p class="tf3-card-description">
-        {{ task.description }}
+        {{ task.description || 'Без опису' }}
       </p>
 
       <div class="tf3-card-meta">
@@ -162,6 +167,15 @@ function editTask() {
         >
           Редагувати
         </button>
+
+        <button
+          v-if="editable"
+          type="button"
+          class="tf3-action tf5-danger"
+          @click="requestDelete"
+        >
+          Видалити
+        </button>
       </div>
     </f7-card-content>
   </f7-card>
@@ -176,5 +190,15 @@ function editTask() {
   color: #bbd5ff;
   font-size: 11px;
   font-weight: 700;
+}
+
+.tf5-danger {
+  border: 1px solid #b85d6a;
+  background: #402333;
+  color: #ffb6be;
+}
+
+.tf5-danger:hover {
+  background: #632d40;
 }
 </style>

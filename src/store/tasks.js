@@ -29,6 +29,7 @@ function validDate(value) {
 
 function getToday() {
   const date = new Date()
+
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
@@ -110,7 +111,7 @@ export function addTask(data) {
 
 export function updateTask({ id, ...data }) {
   const task = taskState.tasks.find(
-    (item) => item.id === id
+    (item) => item.id === Number(id)
   )
 
   if (!task) return null
@@ -126,7 +127,7 @@ export function updateTask({ id, ...data }) {
     return null
   }
 
-  if (!isTitleUnique(normalized.title, id)) {
+  if (!isTitleUnique(normalized.title, task.id)) {
     return null
   }
 
@@ -136,26 +137,48 @@ export function updateTask({ id, ...data }) {
 }
 
 export function setTaskStatus({ id, status }) {
-  if (!allowedStatuses.includes(status)) return
+  if (!allowedStatuses.includes(status)) {
+    return false
+  }
 
   const task = taskState.tasks.find(
-    (item) => item.id === id
+    (item) => item.id === Number(id)
   )
 
-  if (task) {
-    task.status = status
-    task.completed = status === 'done'
-  }
+  if (!task) return false
+
+  task.status = status
+  task.completed = status === 'done'
+
+  return true
 }
 
 export function setTaskPriority({ id, priority }) {
-  if (!allowedPriorities.includes(priority)) return
+  if (!allowedPriorities.includes(priority)) {
+    return false
+  }
 
   const task = taskState.tasks.find(
-    (item) => item.id === id
+    (item) => item.id === Number(id)
   )
 
-  if (task) {
-    task.priority = priority
+  if (!task) return false
+
+  task.priority = priority
+
+  return true
+}
+
+export function deleteTask(id) {
+  const index = taskState.tasks.findIndex(
+    (task) => task.id === Number(id)
+  )
+
+  if (index === -1) {
+    return false
   }
+
+  taskState.tasks.splice(index, 1)
+
+  return true
 }
