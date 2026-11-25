@@ -4,6 +4,7 @@ import '../css/task-components.css'
 import '../css/task-form.css'
 
 import { computed, nextTick, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 
 import AppTabbar from '../components/AppTabbar.vue'
 import TaskCard from '../components/TaskCard.vue'
@@ -11,167 +12,123 @@ import TaskCounter from '../components/TaskCounter.vue'
 import TaskForm from '../components/TaskForm.vue'
 import TaskListControls from '../components/TaskListControls.vue'
 
-import {
-  taskState,
-  addTask,
-  updateTask,
-  deleteTask,
-  setTaskStatus,
-  setTaskPriority
-} from '../store/tasks'
+import { useTasksStore } from '../store/tasks'
+import { useProjectsStore } from '../store/projects'
 
-const selectedStatus = ref('all')
-const selectedPriority = ref('all')
+const taskStore = useTasksStore()
+const projectStore = useProjectsStore()
+
+const {
+  tasks,
+  visibleTasks,
+  searchText,
+  selectedStatus,
+  selectedPriority,
+  selectedProject,
+  sortOrder,
+  onlyIncomplete,
+  visibleCompletedPercent
+} = storeToRefs(taskStore)
+
+const {
+  projects,
+  projectStats
+} = storeToRefs(projectStore)
+
+// Локальний стан сторінки
 const selectedTaskId = ref(null)
-const sortOrder = ref('newest')
-const searchQuery = ref('')
-const onlyIncomplete = ref(false)
-
 const formVisible = ref(false)
 const editingId = ref(null)
 const formAnchor = ref(null)
 const feedback = ref('')
 
-const priorityOrder = {
-  low: 1,
-  medium: 2,
-  high: 3
-}
+const newProjectTitle = ref('')
+const newProjectError = ref('')
 
-const statusOrder = {
-  progress: 1,
-  todo: 2,
-  done: 3
-}
+// Проєкт для групового переведення завдань
+const bulkProjectId = ref('')
 
-const filteredTasks = computed(() => {
-  const query = searchQuery.value
-    .trim()
-    .toLocaleLowerCase('uk-UA')
-
-  const result = taskState.tasks.filter((task) => {
-    const matchesStatus =
-      selectedStatus.value === 'all' ||
-      task.status === selectedStatus.value
-
-    const matchesPriority =
-      selectedPriority.value === 'all' ||
-      task.priority === selectedPriority.value
-
-    const searchableText =
-      `${task.title} ${task.description ?? ''}`
-        .toLocaleLowerCase('uk-UA')
-
-    const matchesSearch =
-      !query || searchableText.includes(query)
-
-    const matchesIncomplete =
-      !onlyIncomplete.value ||
-      task.status !== 'done'
-
-    return (
-      matchesStatus &&
-      matchesPriority &&
-      matchesSearch &&
-      matchesIncomplete
-    )
-  })
-
-  return result.sort((a, b) => {
-    if (sortOrder.value === 'title') {
-      return (
-        a.title.localeCompare(b.title, 'uk-UA') ||
-        a.id - b.id
-      )
-    }
-
-    if (sortOrder.value === 'priority') {
-      return (
-        priorityOrder[b.priority] -
-        priorityOrder[a.priority] ||
-        b.id - a.id
-      )
-    }
-
-    if (sortOrder.value === 'low') {
-      return (
-        priorityOrder[a.priority] -
-        priorityOrder[b.priority] ||
-        b.id - a.id
-      )
-    }
-
-    if (sortOrder.value === 'status') {
-      return (
-        statusOrder[a.status] -
-        statusOrder[b.status] ||
-        b.id - a.id
-      )
-    }
-
-    if (sortOrder.value === 'dueDate') {
-      const first = a.dueDate || '9999-12-31'
-      const second = b.dueDate || '9999-12-31'
-
-      return (
-        first.localeCompare(second) ||
-        b.id - a.id
-      )
-    }
-
-    if (sortOrder.value === 'dueDateDesc') {
-      if (!a.dueDate && !b.dueDate) {
-        return b.id - a.id
-      }
-
-      if (!a.dueDate) return 1
-      if (!b.dueDate) return -1
-
-      return (
-        b.dueDate.localeCompare(a.dueDate) ||
-        b.id - a.id
-      )
-    }
-
-    return b.id - a.id
-  })
-})
-
-const completedCount = computed(() =>
-  filteredTasks.value.filter(
-    (task) => task.status === 'done'
-  ).length
+const bulkProject = computed(() =>
+  projectStats.value.find(
+    (project) => project.id === bulkProjectId.value
+  ) ?? null
 )
 
-const completedPercent = computed(() => {
-  if (filteredTasks.value.length === 0) {
-    return 0
-  }
-
-  return Math.round(
-    completedCount.value /
-    filteredTasks.value.length * 100
-  )
-})
+const bulkTaskCount = computed(() =>
+  bulkProject.value?.taskCount ?? 0
+)
 
 const selectedTask = computed(() =>
-  taskState.tasks.find(
+  tasks.value.find(
     (task) => task.id === selectedTaskId.value
   ) ?? null
 )
 
 const editingTask = computed(() =>
-  taskState.tasks.find(
+  tasks.value.find(
     (task) => task.id === editingId.value
   ) ?? null
 )
 
+// Створення проєкту
+function createProject() {
+  const project = projectStore.addProject(
+    newProjectTitle.value
+  )
+
+  if (!project) {
+    newProjectError.value =
+      'Назва повинна містити 3–40 символів і не повторювати інші проєкти.'
+    return
+  }
+
+  newProjectTitle.value = ''
+  newProjectError.value = ''
+  selectedProject.value = project.id
+
+  feedback.value =
+    `Проєкт «${project.title}» створено.`
+}
+
+// Додаткове завдання №4:
+// Групова зміна статусів із підтвердженням
+function moveProjectTasksToProgress() {
+  if (!bulkProject.value || bulkTaskCount.value === 0) {
+    return
+  }
+
+  const projectId = bulkProject.value.id
+  const projectTitle = bulkProject.value.title
+  const count = bulkTaskCount.value
+
+  const confirmed = window.confirm(
+    `Перевести всі завдання проєкту «${projectTitle}» (${count}) у статус «У роботі»? Це також змінить статус уже виконаних завдань.`
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  const changedCount =
+    taskStore.moveProjectTasksToProgress(projectId)
+
+  if (changedCount === null) {
+    feedback.value =
+      'Не вдалося змінити статуси завдань.'
+    return
+  }
+
+  feedback.value =
+    `У проєкті «${projectTitle}» переведено ${changedCount} завдань у статус «У роботі».`
+}
+
+// Дії з картками
 function handleStatusChange(payload) {
-  setTaskStatus(payload)
+  taskStore.setTaskStatus(payload)
 }
 
 function handlePriorityChange(payload) {
-  setTaskPriority(payload)
+  taskStore.setTaskPriority(payload)
 }
 
 function handleTaskSelect(payload) {
@@ -179,11 +136,7 @@ function handleTaskSelect(payload) {
 }
 
 function resetFilters() {
-  selectedStatus.value = 'all'
-  selectedPriority.value = 'all'
-  sortOrder.value = 'newest'
-  searchQuery.value = ''
-  onlyIncomplete.value = false
+  taskStore.resetFilters()
 }
 
 async function scrollToForm() {
@@ -203,12 +156,11 @@ async function createTask() {
   await nextTick()
 
   formVisible.value = true
-
   await scrollToForm()
 }
 
 async function editTask(id) {
-  const task = taskState.tasks.find(
+  const task = tasks.value.find(
     (item) => item.id === Number(id)
   )
 
@@ -221,7 +173,6 @@ async function editTask(id) {
   await nextTick()
 
   formVisible.value = true
-
   await scrollToForm()
 }
 
@@ -234,43 +185,32 @@ function saveTask(data) {
   const isEditing = editingId.value !== null
 
   const saved = isEditing
-    ? updateTask({
+    ? taskStore.updateTask({
         ...data,
         id: editingId.value
       })
-    : addTask(data)
+    : taskStore.addTask(data)
 
   if (!saved) {
     feedback.value =
       'Не вдалося зберегти завдання. Перевірте дані форми.'
-
     return
   }
 
-  const savedTask = typeof saved === 'object'
-    ? saved
-    : isEditing
-      ? taskState.tasks.find(
-          (task) => task.id === editingId.value
-        )
-      : taskState.tasks[taskState.tasks.length - 1]
-
-  const savedTitle = savedTask?.title ?? data.title
-
   feedback.value = isEditing
-    ? `Завдання «${savedTitle}» оновлено.`
-    : `Завдання «${savedTitle}» створено.`
+    ? `Завдання «${saved.title}» оновлено.`
+    : `Завдання «${saved.title}» створено.`
+
+  selectedTaskId.value = saved.id
 
   cancelForm()
-  resetFilters()
-
-  selectedTaskId.value = savedTask?.id ?? null
+  taskStore.resetFilters()
 }
 
 function handleDelete(id) {
   const taskId = Number(id)
 
-  const task = taskState.tasks.find(
+  const task = tasks.value.find(
     (item) => item.id === taskId
   )
 
@@ -282,7 +222,7 @@ function handleDelete(id) {
 
   if (!confirmed) return
 
-  const deleted = deleteTask(taskId)
+  const deleted = taskStore.deleteTask(taskId)
 
   if (!deleted) {
     feedback.value = 'Не вдалося видалити завдання.'
@@ -307,7 +247,6 @@ function handleDelete(id) {
     <f7-navbar title="Мої завдання" />
 
     <div class="tf3-container">
-
       <section class="tf3-hero">
         <div class="tf3-eyebrow">
           TASKFLOW / TASK MANAGER
@@ -316,8 +255,8 @@ function handleDelete(id) {
         <h1>Мої завдання</h1>
 
         <p>
-          Створюйте, редагуйте, знаходьте,
-          сортуйте та видаляйте завдання.
+          Керуйте завданнями та проєктами.
+          Усі зміни обробляються через Pinia.
         </p>
 
         <button
@@ -337,6 +276,118 @@ function handleDelete(id) {
         {{ feedback }}
       </p>
 
+      <!-- Каталог проєктів -->
+      <section class="tf6-project-panel">
+        <div class="tf3-eyebrow">
+          TASKFLOW / PROJECTS
+        </div>
+
+        <h2>Мої проєкти</h2>
+
+        <p class="tf6-project-description">
+          Створюйте проєкти та об'єднуйте
+          завдання за спільною темою.
+        </p>
+
+        <div class="tf6-project-list">
+          <div
+            v-for="project in projectStats"
+            :key="project.id"
+            class="tf6-project-item"
+          >
+            <span>{{ project.title }}</span>
+            <strong>{{ project.taskCount }}</strong>
+          </div>
+        </div>
+
+        <!-- Створення проєкту -->
+        <form
+          class="tf6-project-form"
+          @submit.prevent="createProject"
+        >
+          <label for="tf6-project-title">
+            Назва нового проєкту
+
+            <input
+              id="tf6-project-title"
+              v-model="newProjectTitle"
+              type="text"
+              maxlength="40"
+              placeholder="Наприклад: Лабораторні"
+              @input="newProjectError = ''"
+            />
+          </label>
+
+          <button
+            type="submit"
+            class="tf6-project-button"
+          >
+            + Створити проєкт
+          </button>
+        </form>
+
+        <p
+          v-if="newProjectError"
+          class="tf6-project-error"
+          role="alert"
+        >
+          {{ newProjectError }}
+        </p>
+
+        <!-- Групове переведення завдань -->
+        <div class="tf6-bulk-section">
+          <h3>Групова зміна статусів</h3>
+
+          <p>
+            Можна перевести всі завдання вибраного
+            проєкту в статус «У роботі».
+          </p>
+
+          <div class="tf6-bulk-grid">
+            <label for="tf6-bulk-project">
+              Виберіть проєкт
+
+              <select
+                id="tf6-bulk-project"
+                v-model="bulkProjectId"
+              >
+                <option value="">
+                  Оберіть проєкт
+                </option>
+
+                <option
+                  v-for="project in projects"
+                  :key="project.id"
+                  :value="project.id"
+                >
+                  {{ project.title }}
+                </option>
+              </select>
+            </label>
+
+            <button
+              type="button"
+              class="tf6-bulk-button"
+              :disabled="
+                !bulkProjectId || bulkTaskCount === 0
+              "
+              @click="moveProjectTasksToProgress"
+            >
+              Перевести всі у роботу
+            </button>
+          </div>
+
+          <p
+            v-if="bulkProject"
+            class="tf6-bulk-count"
+          >
+            Завдань у проєкті:
+            <strong>{{ bulkTaskCount }}</strong>
+          </p>
+        </div>
+      </section>
+
+      <!-- Форма завдання -->
       <section
         v-if="formVisible"
         ref="formAnchor"
@@ -345,22 +396,26 @@ function handleDelete(id) {
         <TaskForm
           :key="editingId ?? 'new'"
           :task="editingTask"
+          :projects="projects"
           @save="saveTask"
           @cancel="cancelForm"
         />
       </section>
 
+      <!-- Пошук та фільтри -->
       <TaskListControls
-        v-model:search="searchQuery"
+        v-model:search="searchText"
         v-model:status="selectedStatus"
         v-model:priority="selectedPriority"
+        v-model:project="selectedProject"
         v-model:sort="sortOrder"
         v-model:onlyIncomplete="onlyIncomplete"
+        :projects="projects"
         @reset="resetFilters"
       />
 
+      <!-- Список завдань -->
       <section class="tf3-section">
-
         <div class="tf3-section-heading">
           <div>
             <div class="tf3-eyebrow">
@@ -371,14 +426,17 @@ function handleDelete(id) {
           </div>
 
           <div class="tf5-counter-group">
-            <TaskCounter :count="filteredTasks.length" />
+            <TaskCounter
+              :count="visibleTasks.length"
+            />
 
             <span class="tf5-total-counter">
-              із {{ taskState.tasks.length }}
+              із {{ tasks.length }}
             </span>
 
             <span class="tf5-percent">
-              Виконано: {{ completedPercent }}%
+              Виконано:
+              {{ visibleCompletedPercent }}%
             </span>
           </div>
         </div>
@@ -393,13 +451,16 @@ function handleDelete(id) {
         </div>
 
         <div
-          v-if="filteredTasks.length"
+          v-if="visibleTasks.length"
           class="tf3-task-grid"
         >
           <TaskCard
-            v-for="task in filteredTasks"
+            v-for="task in visibleTasks"
             :key="task.id"
             :task="task"
+            :project-title="
+              projectStore.projectTitle(task.projectId)
+            "
             :editable="true"
             @status-change="handleStatusChange"
             @priority-change="handlePriorityChange"
@@ -410,7 +471,7 @@ function handleDelete(id) {
         </div>
 
         <div
-          v-else-if="taskState.tasks.length === 0"
+          v-else-if="tasks.length === 0"
           class="tf3-empty tf5-empty-state"
         >
           <h3>Список завдань порожній</h3>
@@ -437,8 +498,8 @@ function handleDelete(id) {
           <h3>Завдань не знайдено</h3>
 
           <p>
-            За поточними умовами
-            завдань не знайдено.
+            За поточними умовами пошуку
+            та фільтрації завдань не знайдено.
           </p>
 
           <button
@@ -449,7 +510,6 @@ function handleDelete(id) {
             Показати всі завдання
           </button>
         </div>
-
       </section>
     </div>
 
@@ -458,6 +518,214 @@ function handleDelete(id) {
 </template>
 
 <style scoped>
+.tf6-project-panel {
+  margin: 24px 0;
+  padding: 22px;
+  border: 1px solid #28435f;
+  border-radius: 16px;
+  background: #13243a;
+  color: #edf4ff;
+}
+
+.tf6-project-panel h2 {
+  margin: 8px 0 12px;
+  color: #ffffff;
+  font-size: 22px;
+}
+
+.tf6-project-description {
+  margin-bottom: 20px;
+  color: #c2d3e7;
+  font-size: 14px;
+}
+
+.tf6-project-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.tf6-project-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #385a7a;
+  border-radius: 12px;
+  background: #1a344f;
+  color: #e4f2ff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tf6-project-item strong {
+  min-width: 22px;
+  text-align: center;
+  color: #71d7ff;
+  font-size: 15px;
+}
+
+.tf6-project-form,
+.tf6-bulk-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  max-width: 680px;
+}
+
+.tf6-project-form label,
+.tf6-bulk-grid label {
+  display: grid;
+  gap: 8px;
+  color: #d7e4f5;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tf6-project-form input,
+.tf6-bulk-grid select {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #39526f;
+  border-radius: 9px;
+  background: #0c1728;
+  color: #f0f7ff;
+  font: inherit;
+  color-scheme: dark;
+}
+
+.tf6-project-button,
+.tf6-bulk-button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #39afe0;
+  border-radius: 9px;
+  background: #168fbd;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tf6-project-button:hover,
+.tf6-bulk-button:hover:not(:disabled) {
+  background: #126b96;
+}
+
+.tf6-bulk-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tf6-project-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d26d6d;
+  border-radius: 8px;
+  background: #572a35;
+  color: #ffd1d1;
+}
+
+/* Групове керування */
+.tf6-bulk-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #385a7a;
+}
+
+.tf6-bulk-section h3 {
+  margin: 0 0 8px;
+  color: #ffffff;
+  font-size: 17px;
+}
+
+.tf6-bulk-section > p {
+  color: #c2d3e7;
+  font-size: 13px;
+}
+
+.tf6-bulk-grid {
+  margin-top: 14px;
+}
+
+.tf6-bulk-count {
+  margin-top: 12px;
+}
+
+.tf6-bulk-count strong {
+  color: #71d7ff;
+}
+
+/* Панель фільтрів */
+:deep(.tf5-panel) {
+  margin: 22px 0;
+  padding: 20px;
+  border: 1px solid #28435f;
+  border-radius: 16px;
+  background: #13243a;
+  color: #edf4ff;
+}
+
+:deep(.tf5-panel h2) {
+  margin: 0 0 18px;
+  color: #ffffff;
+  font-size: 19px;
+}
+
+:deep(.tf5-controls-grid) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+:deep(.tf5-controls-grid label) {
+  display: grid;
+  gap: 7px;
+  color: #d7e4f5;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:deep(.tf5-search) {
+  grid-column: 1 / -1;
+}
+
+:deep(.tf5-controls-grid input),
+:deep(.tf5-controls-grid select) {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #39526f;
+  border-radius: 9px;
+  background: #0c1728;
+  color: #f0f7ff;
+  font: inherit;
+  color-scheme: dark;
+}
+
+:deep(.tf5-btn) {
+  min-height: 39px;
+  padding: 9px 14px;
+  border: 1px solid #526c8c;
+  border-radius: 9px;
+  background: #203550;
+  color: #eff7ff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:deep(.tf5-btn:hover) {
+  filter: brightness(1.12);
+}
+
 .tf3-selected-task {
   margin-bottom: 18px;
   padding: 16px;
@@ -480,7 +748,7 @@ function handleDelete(id) {
 }
 
 .tf5-total-counter {
-  color: #60758d;
+  color: #91a8c1;
   font-size: 14px;
 }
 
@@ -523,6 +791,23 @@ function handleDelete(id) {
 }
 
 @media (max-width: 680px) {
+  .tf6-project-panel {
+    padding: 16px;
+  }
+
+  .tf6-project-form,
+  .tf6-bulk-grid {
+    grid-template-columns: 1fr;
+  }
+
+  :deep(.tf5-controls-grid) {
+    grid-template-columns: 1fr;
+  }
+
+  :deep(.tf5-search) {
+    grid-column: auto;
+  }
+
   .tf5-counter-group {
     justify-content: flex-start;
   }

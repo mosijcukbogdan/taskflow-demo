@@ -1,72 +1,64 @@
 
 <script setup>
 import '../css/task-components.css'
+
 import { ref, computed } from 'vue'
+import { storeToRefs } from 'pinia'
+
 import AppTabbar from '../components/AppTabbar.vue'
 import TaskCard from '../components/TaskCard.vue'
-import {
-  taskState,
-  setTaskStatus,
-  setTaskPriority
-} from '../store/tasks'
 
+import { useTasksStore } from '../store/tasks'
+import { useProjectsStore } from '../store/projects'
+
+// Підключаємо сховища Pinia
+const taskStore = useTasksStore()
+const projectStore = useProjectsStore()
+
+// Статистика завдань
+const {
+  tasks,
+  totalTasks,
+  completedTasks,
+  progressTasks,
+  plannedTasks,
+  completedPercent,
+  activeTasks
+} = storeToRefs(taskStore)
+
+// Статистика проєктів
+const {
+  projectCount,
+  projectStats
+} = storeToRefs(projectStore)
+
+// Обране завдання
 const selectedTaskId = ref(null)
 
-const totalTasks = computed(() => taskState.tasks.length)
-
-const completedTasks = computed(() =>
-  taskState.tasks.filter(
-    (task) => task.status === 'done'
-  ).length
-)
-
-const progressTasks = computed(() =>
-  taskState.tasks.filter(
-    (task) => task.status === 'progress'
-  ).length
-)
-
-const plannedTasks = computed(() =>
-  taskState.tasks.filter(
-    (task) => task.status === 'todo'
-  ).length
-)
-
-const completedPercent = computed(() => {
-  if (totalTasks.value === 0) return 0
-
-  return Math.round(
-    (completedTasks.value / totalTasks.value) * 100
-  )
-})
-
-const activeTasks = computed(() => {
-  const order = {
-    high: 0,
-    medium: 1,
-    low: 2
-  }
-
-  return taskState.tasks
-    .filter((task) => task.status !== 'done')
-    .sort((a, b) => order[a.priority] - order[b.priority])
-    .slice(0, 3)
-})
-
 const selectedTask = computed(() =>
-  taskState.tasks.find(
+  tasks.value.find(
     (task) => task.id === selectedTaskId.value
-  )
+  ) ?? null
 )
 
+// Назва проєкту в картці
+function projectTitleFor(task) {
+  return projectStore.projectTitle(
+    task.projectId ?? 'general'
+  )
+}
+
+// Зміна статусу
 function handleStatusChange(payload) {
-  setTaskStatus(payload)
+  taskStore.setTaskStatus(payload)
 }
 
+// Зміна пріоритету
 function handlePriorityChange(payload) {
-  setTaskPriority(payload)
+  taskStore.setTaskPriority(payload)
 }
 
+// Вибір завдання
 function handleTaskSelect(payload) {
   selectedTaskId.value = payload.id
 }
@@ -74,6 +66,7 @@ function handleTaskSelect(payload) {
 
 <template>
   <f7-page name="home" class="tf3-page">
+
     <f7-navbar title="TaskFlow">
       <f7-nav-right>
         <f7-link href="/about/">
@@ -83,6 +76,8 @@ function handleTaskSelect(payload) {
     </f7-navbar>
 
     <div class="tf3-container">
+
+      <!-- Заголовок -->
       <section class="tf3-hero">
         <div class="tf3-eyebrow">
           TASKFLOW / DASHBOARD
@@ -93,14 +88,23 @@ function handleTaskSelect(payload) {
         <p>
           Контролюйте виконання завдань
           та їхні пріоритети.
+          Усі дані синхронізуються через Pinia.
+        </p>
+
+        <p class="tf6-project-count">
+          Проєктів у TaskFlow:
+          <strong>{{ projectCount }}</strong>
         </p>
       </section>
 
+      <!-- Основна статистика -->
       <section class="tf3-stat-grid">
+
         <div class="tf3-stat">
           <span class="tf3-stat-label">
             Усього завдань
           </span>
+
           <strong>{{ totalTasks }}</strong>
         </div>
 
@@ -108,6 +112,7 @@ function handleTaskSelect(payload) {
           <span class="tf3-stat-label">
             У роботі
           </span>
+
           <strong>{{ progressTasks }}</strong>
         </div>
 
@@ -115,6 +120,7 @@ function handleTaskSelect(payload) {
           <span class="tf3-stat-label">
             Виконано
           </span>
+
           <strong>{{ completedTasks }}</strong>
         </div>
 
@@ -122,11 +128,15 @@ function handleTaskSelect(payload) {
           <span class="tf3-stat-label">
             Заплановано
           </span>
+
           <strong>{{ plannedTasks }}</strong>
         </div>
+
       </section>
 
+      <!-- Прогрес виконання -->
       <section class="tf3-progress-section">
+
         <div class="tf3-progress-heading">
           <div>
             <div class="tf3-eyebrow">
@@ -151,7 +161,9 @@ function handleTaskSelect(payload) {
         >
           <div
             class="tf3-progress-fill"
-            :style="{ width: completedPercent + '%' }"
+            :style="{
+              width: completedPercent + '%'
+            }"
           ></div>
         </div>
 
@@ -159,9 +171,99 @@ function handleTaskSelect(payload) {
           Виконано {{ completedTasks }}
           із {{ totalTasks }} завдань
         </p>
+
       </section>
 
+      <!-- Огляд проєктів -->
+      <section class="tf6-project-section">
+
+        <div class="tf3-eyebrow">
+          PROJECT OVERVIEW
+        </div>
+
+        <div class="tf6-project-heading">
+          <div>
+            <h2>Огляд проєктів</h2>
+
+            <p>
+              Кількість невиконаних завдань
+              та прогрес кожного проєкту.
+            </p>
+          </div>
+
+          <f7-button
+            href="/tasks/"
+            outline
+            small
+          >
+            Мої завдання
+          </f7-button>
+        </div>
+
+        <div class="tf6-project-grid">
+
+          <div
+            v-for="project in projectStats"
+            :key="project.id"
+            class="tf6-project-card"
+          >
+            <h3>
+              {{ project.title }}
+            </h3>
+
+            <div class="tf6-project-numbers">
+
+              <div>
+                <span>Усього</span>
+                <strong>{{ project.total }}</strong>
+              </div>
+
+              <div>
+                <span>Невиконано</span>
+                <strong>{{ project.incomplete }}</strong>
+              </div>
+
+              <div>
+                <span>Виконано</span>
+                <strong>{{ project.completed }}</strong>
+              </div>
+
+            </div>
+
+            <div class="tf6-project-progress-heading">
+              <span>Прогрес</span>
+
+              <strong>
+                {{ project.percent }}%
+              </strong>
+            </div>
+
+            <div
+              class="tf6-project-progress-track"
+              role="progressbar"
+              :aria-label="
+                'Прогрес проєкту ' + project.title
+              "
+              :aria-valuenow="project.percent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div
+                class="tf6-project-progress-fill"
+                :style="{
+                  width: project.percent + '%'
+                }"
+              ></div>
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Актуальні завдання -->
       <section class="tf3-section">
+
         <div class="tf3-section-heading">
           <div>
             <div class="tf3-eyebrow">
@@ -186,7 +288,10 @@ function handleTaskSelect(payload) {
           role="status"
         >
           Обрано завдання:
-          <strong>{{ selectedTask.title }}</strong>
+
+          <strong>
+            {{ selectedTask.title }}
+          </strong>
         </div>
 
         <div
@@ -197,27 +302,36 @@ function handleTaskSelect(payload) {
             v-for="task in activeTasks"
             :key="task.id"
             :task="task"
+            :project-title="projectTitleFor(task)"
             @status-change="handleStatusChange"
             @priority-change="handlePriorityChange"
             @task-select="handleTaskSelect"
           />
         </div>
 
-        <div v-else class="tf3-empty">
+        <div
+          v-else
+          class="tf3-empty"
+        >
           Наразі всі завдання виконані.
         </div>
+
       </section>
+
     </div>
 
     <AppTabbar active="home" />
+
   </f7-page>
 </template>
 
 <style scoped>
+/* Загальна статистика */
 .tf3-stat-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Прогрес завдань */
 .tf3-progress-section {
   margin-top: 20px;
   padding: 24px;
@@ -236,7 +350,7 @@ function handleTaskSelect(payload) {
 
 .tf3-progress-heading h2 {
   margin: 8px 0 0;
-  color: #fff;
+  color: #ffffff;
   font-size: 20px;
 }
 
@@ -255,7 +369,11 @@ function handleTaskSelect(payload) {
 
 .tf3-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #12668b, #58c7ef);
+  background: linear-gradient(
+    90deg,
+    #12668b,
+    #58c7ef
+  );
   border-radius: 20px;
   transition: width 0.3s ease;
 }
@@ -266,6 +384,127 @@ function handleTaskSelect(payload) {
   font-size: 13px;
 }
 
+/* Кількість проєктів */
+.tf6-project-count {
+  margin-top: 15px;
+  color: #c5def0;
+  font-size: 14px;
+}
+
+.tf6-project-count strong {
+  color: #71d7ff;
+  font-weight: 800;
+}
+
+/* Огляд проєктів */
+.tf6-project-section {
+  margin-top: 24px;
+  padding: 22px;
+  background: #142237;
+  border: 1px solid #263a52;
+  border-radius: 15px;
+  color: #edf4ff;
+}
+
+.tf6-project-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.tf6-project-heading h2 {
+  margin: 8px 0;
+  color: #ffffff;
+  font-size: 21px;
+}
+
+.tf6-project-heading p {
+  margin: 0;
+  color: #aabed5;
+  font-size: 13px;
+}
+
+.tf6-project-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.tf6-project-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #36516d;
+  border-radius: 13px;
+  background: #1a3049;
+}
+
+.tf6-project-card h3 {
+  margin: 0 0 18px;
+  color: #ffffff;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.tf6-project-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.tf6-project-numbers div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tf6-project-numbers span {
+  color: #aabed5;
+  font-size: 11px;
+}
+
+.tf6-project-numbers strong {
+  color: #edf4ff;
+  font-size: 22px;
+}
+
+.tf6-project-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 9px;
+  color: #bcd0e3;
+  font-size: 12px;
+}
+
+.tf6-project-progress-heading strong {
+  color: #71d7ff;
+  font-size: 15px;
+}
+
+.tf6-project-progress-track {
+  width: 100%;
+  height: 9px;
+  border-radius: 12px;
+  background: #263a52;
+  overflow: hidden;
+}
+
+.tf6-project-progress-fill {
+  height: 100%;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    #168fbd,
+    #71d7ff
+  );
+  transition: width 0.3s ease;
+}
+
+/* Обране завдання */
 .tf3-selected-task {
   margin-bottom: 18px;
   padding: 16px;
@@ -279,9 +518,24 @@ function handleTaskSelect(payload) {
   color: #58c7ef;
 }
 
+/* Адаптивність */
+@media (max-width: 900px) {
+  .tf6-project-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 740px) {
   .tf3-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tf6-project-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf6-project-section {
+    padding: 16px;
   }
 }
 </style>

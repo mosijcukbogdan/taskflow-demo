@@ -9,7 +9,15 @@ const props = defineProps({
     type: Object,
     required: true
   },
+  projectTitle: {
+    type: String,
+    default: 'Загальні'
+  },
   editable: {
+    type: Boolean,
+    default: false
+  },
+  showManagementActions: {
     type: Boolean,
     default: false
   }
@@ -43,9 +51,13 @@ const statusActionText = computed(() => ({
 })[props.task.status] || 'Змінити статус')
 
 const formattedDate = computed(() => {
-  if (!props.task.dueDate) return 'Без терміну'
+  if (!props.task.dueDate) {
+    return 'Без терміну'
+  }
 
-  const date = new Date(`${props.task.dueDate}T12:00:00`)
+  const date = new Date(
+    `${props.task.dueDate}T12:00:00`
+  )
 
   if (Number.isNaN(date.getTime())) {
     return 'Дата не визначена'
@@ -59,24 +71,32 @@ const formattedDate = computed(() => {
 })
 
 function changeStatus() {
-  const index = statusSequence.indexOf(props.task.status)
+  const index = statusSequence.indexOf(
+    props.task.status
+  )
+
+  const nextStatus = statusSequence[
+    (index + 1) % statusSequence.length
+  ]
 
   emit('status-change', {
     id: props.task.id,
-    status: statusSequence[
-      (index + 1) % statusSequence.length
-    ]
+    status: nextStatus
   })
 }
 
 function changePriority() {
-  const index = prioritySequence.indexOf(props.task.priority)
+  const index = prioritySequence.indexOf(
+    props.task.priority
+  )
+
+  const nextPriority = prioritySequence[
+    (index + 1) % prioritySequence.length
+  ]
 
   emit('priority-change', {
     id: props.task.id,
-    priority: prioritySequence[
-      (index + 1) % prioritySequence.length
-    ]
+    priority: nextPriority
   })
 }
 
@@ -98,6 +118,7 @@ function requestDelete() {
 <template>
   <f7-card class="tf3-task-card">
     <f7-card-content>
+
       <div class="tf3-card-heading">
         <h3 class="tf3-card-title">
           {{ task.title }}
@@ -111,12 +132,15 @@ function requestDelete() {
       </p>
 
       <div class="tf3-card-meta">
+
         <div class="tf3-meta-item">
           <span class="tf3-meta-label">
             Пріоритет:
           </span>
 
-          <PriorityBadge :priority="task.priority" />
+          <PriorityBadge
+            :priority="task.priority"
+          />
         </div>
 
         <div class="tf3-meta-item">
@@ -129,12 +153,23 @@ function requestDelete() {
           </span>
         </div>
 
+        <div class="tf3-meta-item">
+          <span class="tf3-meta-label">
+            Проєкт:
+          </span>
+
+          <span class="tf6-project-badge">
+            {{ projectTitle }}
+          </span>
+        </div>
+
         <div class="tf3-meta-date">
           Термін: {{ formattedDate }}
         </div>
       </div>
 
       <div class="tf3-card-actions">
+
         <button
           type="button"
           class="tf3-action tf3-action--primary"
@@ -160,7 +195,7 @@ function requestDelete() {
         </button>
 
         <button
-          v-if="editable"
+          v-if="editable || showManagementActions"
           type="button"
           class="tf3-action"
           @click="editTask"
@@ -169,13 +204,14 @@ function requestDelete() {
         </button>
 
         <button
-          v-if="editable"
+          v-if="editable || showManagementActions"
           type="button"
           class="tf3-action tf5-danger"
           @click="requestDelete"
         >
           Видалити
         </button>
+
       </div>
     </f7-card-content>
   </f7-card>
@@ -188,6 +224,16 @@ function requestDelete() {
   border-radius: 20px;
   background: #253c60;
   color: #bbd5ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tf6-project-badge {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: 20px;
+  background: #174c5c;
+  color: #80e3f6;
   font-size: 11px;
   font-weight: 700;
 }

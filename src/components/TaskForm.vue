@@ -1,16 +1,30 @@
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { isTitleUnique } from '../store/tasks'
+import { computed, reactive, ref, watch } from 'vue'
+import { useTasksStore } from '../store/tasks'
+import { useProjectsStore } from '../store/projects'
 
 const props = defineProps({
   task: {
     type: Object,
     default: null
+  },
+  projects: {
+    type: Array,
+    default: () => []
   }
 })
 
 const emit = defineEmits(['save', 'cancel'])
+
+const taskStore = useTasksStore()
+const projectStore = useProjectsStore()
+
+const availableProjects = computed(() =>
+  props.projects.length > 0
+    ? props.projects
+    : projectStore.projects
+)
 
 const defaultForm = {
   title: '',
@@ -18,23 +32,32 @@ const defaultForm = {
   status: 'todo',
   priority: 'medium',
   category: 'study',
+  projectId: 'general',
   dueDate: ''
 }
 
-const form = reactive({
-  ...defaultForm,
-  ...(props.task ? {
-    title: props.task.title ?? '',
-    description: props.task.description ?? '',
-    status: props.task.status ?? 'todo',
-    priority: props.task.priority ?? 'medium',
-    category: props.task.category ?? 'study',
-    dueDate: props.task.dueDate ?? ''
-  } : {})
-})
+const form = reactive({ ...defaultForm })
 
 const showErrors = ref(false)
 const isEditing = computed(() => props.task !== null)
+
+watch(
+  () => props.task,
+  (task) => {
+    Object.assign(form, {
+      title: task?.title ?? '',
+      description: task?.description ?? '',
+      status: task?.status ?? 'todo',
+      priority: task?.priority ?? 'medium',
+      category: task?.category ?? 'study',
+      projectId: task?.projectId ?? 'general',
+      dueDate: task?.dueDate ?? ''
+    })
+
+    showErrors.value = false
+  },
+  { immediate: true }
+)
 
 const titleRemaining = computed(() =>
   80 - form.title.length
@@ -62,6 +85,12 @@ const categoryLabels = {
   personal: 'Особисте'
 }
 
+const selectedProjectTitle = computed(() =>
+  availableProjects.value.find(
+    (project) => project.id === form.projectId
+  )?.title ?? 'Загальні'
+)
+
 function getToday() {
   const date = new Date()
 
@@ -73,14 +102,26 @@ function getToday() {
 }
 
 function isValidDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
     return false
   }
 
   const date = new Date(`${value}T12:00:00`)
 
-  return !Number.isNaN(date.getTime()) &&
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` === value
+  if (Number.isNaN(date.getTime())) {
+    return false
+  }
+
+  const normalized = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-')
+
+  return normalized === value
 }
 
 const errors = computed(() => {
@@ -92,13 +133,19 @@ const errors = computed(() => {
   if (!title) {
     result.title = 'Вкажіть назву завдання.'
   } else if (title.length < 3) {
-    result.title = 'Назва має містити щонайменше 3 символи.'
+    result.title =
+      'Назва має містити щонайменше 3 символи.'
   } else if (title.length > 80) {
-    result.title = 'Максимальна довжина — 80 символів.'
+    result.title =
+      'Максимальна довжина — 80 символів.'
   } else if (
-    !isTitleUnique(title, props.task?.id ?? null)
+    !taskStore.isTitleUnique(
+      title,
+      props.task?.id ?? null
+    )
   ) {
-    result.title = 'Завдання з такою назвою вже існує.'
+    result.title =
+      'Завдання з такою назвою вже існує.'
   }
 
   if (description.length > 300) {
@@ -106,33 +153,51 @@ const errors = computed(() => {
       'Опис не повинен перевищувати 300 символів.'
   }
 
-  if (!['todo', 'progress', 'done'].includes(form.status)) {
+  if (
+    !['todo', 'progress', 'done'].includes(form.status)
+  ) {
     result.status = 'Оберіть коректний статус.'
   }
 
-  if (!['low', 'medium', 'high'].includes(form.priority)) {
+  if (
+    !['low', 'medium', 'high'].includes(form.priority)
+  ) {
     result.priority = 'Оберіть коректний пріоритет.'
   }
 
-  if (!['study', 'work', 'personal'].includes(form.category)) {
+  if (
+    !['study', 'work', 'personal'].includes(form.category)
+  ) {
     result.category = 'Оберіть коректну категорію.'
   }
 
+  const projectExists = availableProjects.value.some(
+    (project) => project.id === form.projectId
+  )
+
+  if (!projectExists) {
+    result.projectId = 'Оберіть проєкт зі списку.'
+  }
+
   if (!isValidDate(form.dueDate)) {
-    result.dueDate = 'Укажіть коректну дату завершення.'
+    result.dueDate =
+      'Укажіть коректну дату завершення.'
   } else if (
     form.dueDate < getToday() &&
     (!isEditing.value ||
       form.dueDate !== props.task?.dueDate)
   ) {
-    result.dueDate = 'Дата завершення не може бути минулою.'
+    result.dueDate =
+      'Дата завершення не може бути минулою.'
   }
 
   return result
 })
 
 function clearForm() {
-  if (isEditing.value) return
+  if (isEditing.value) {
+    return
+  }
 
   Object.assign(form, defaultForm)
   showErrors.value = false
@@ -151,6 +216,7 @@ function submitForm() {
     status: form.status,
     priority: form.priority,
     category: form.category,
+    projectId: form.projectId,
     dueDate: form.dueDate
   })
 }
@@ -165,7 +231,10 @@ function submitForm() {
         </div>
 
         <h2>
-          {{ isEditing ? 'Редагування завдання' : 'Нове завдання' }}
+          {{ isEditing
+            ? 'Редагування завдання'
+            : 'Нове завдання'
+          }}
         </h2>
       </div>
 
@@ -186,7 +255,10 @@ function submitForm() {
       <div class="tf4-field tf4-field--wide">
         <label for="tf4-title">
           Назва завдання
-          <span class="tf4-required" aria-hidden="true">*</span>
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
         </label>
 
         <input
@@ -197,9 +269,11 @@ function submitForm() {
           required
           placeholder="Наприклад: Підготувати звіт"
           :aria-invalid="showErrors && !!errors.title"
-          :aria-describedby="showErrors && errors.title
-            ? 'tf4-title-hint tf4-title-error'
-            : 'tf4-title-hint'"
+          :aria-describedby="
+            showErrors && errors.title
+              ? 'tf4-title-hint tf4-title-error'
+              : 'tf4-title-hint'
+          "
         />
 
         <small id="tf4-title-hint">
@@ -228,10 +302,14 @@ function submitForm() {
           rows="3"
           maxlength="300"
           placeholder="Що потрібно зробити?"
-          :aria-invalid="showErrors && !!errors.description"
-          :aria-describedby="showErrors && errors.description
-            ? 'tf4-description-hint tf4-description-error'
-            : 'tf4-description-hint'"
+          :aria-invalid="
+            showErrors && !!errors.description
+          "
+          :aria-describedby="
+            showErrors && errors.description
+              ? 'tf4-description-hint tf4-description-error'
+              : 'tf4-description-hint'
+          "
         ></textarea>
 
         <small id="tf4-description-hint">
@@ -252,7 +330,10 @@ function submitForm() {
       <div class="tf4-field">
         <label for="tf4-status">
           Статус
-          <span class="tf4-required" aria-hidden="true">*</span>
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
         </label>
 
         <select
@@ -260,12 +341,21 @@ function submitForm() {
           v-model="form.status"
           required
           :aria-invalid="showErrors && !!errors.status"
-          :aria-describedby="showErrors && errors.status
-            ? 'tf4-status-error' : undefined"
+          :aria-describedby="
+            showErrors && errors.status
+              ? 'tf4-status-error'
+              : undefined
+          "
         >
-          <option value="todo">Заплановано</option>
-          <option value="progress">У роботі</option>
-          <option value="done">Виконано</option>
+          <option value="todo">
+            Заплановано
+          </option>
+          <option value="progress">
+            У роботі
+          </option>
+          <option value="done">
+            Виконано
+          </option>
         </select>
 
         <p
@@ -281,20 +371,34 @@ function submitForm() {
       <div class="tf4-field">
         <label for="tf4-priority">
           Пріоритет
-          <span class="tf4-required" aria-hidden="true">*</span>
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
         </label>
 
         <select
           id="tf4-priority"
           v-model="form.priority"
           required
-          :aria-invalid="showErrors && !!errors.priority"
-          :aria-describedby="showErrors && errors.priority
-            ? 'tf4-priority-error' : undefined"
+          :aria-invalid="
+            showErrors && !!errors.priority
+          "
+          :aria-describedby="
+            showErrors && errors.priority
+              ? 'tf4-priority-error'
+              : undefined
+          "
         >
-          <option value="low">Низький</option>
-          <option value="medium">Середній</option>
-          <option value="high">Високий</option>
+          <option value="low">
+            Низький
+          </option>
+          <option value="medium">
+            Середній
+          </option>
+          <option value="high">
+            Високий
+          </option>
         </select>
 
         <p
@@ -310,20 +414,34 @@ function submitForm() {
       <div class="tf4-field tf4-field--wide">
         <label for="tf4-category">
           Категорія
-          <span class="tf4-required" aria-hidden="true">*</span>
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
         </label>
 
         <select
           id="tf4-category"
           v-model="form.category"
           required
-          :aria-invalid="showErrors && !!errors.category"
-          :aria-describedby="showErrors && errors.category
-            ? 'tf4-category-error' : undefined"
+          :aria-invalid="
+            showErrors && !!errors.category
+          "
+          :aria-describedby="
+            showErrors && errors.category
+              ? 'tf4-category-error'
+              : undefined
+          "
         >
-          <option value="study">Навчання</option>
-          <option value="work">Робота</option>
-          <option value="personal">Особисте</option>
+          <option value="study">
+            Навчання
+          </option>
+          <option value="work">
+            Робота
+          </option>
+          <option value="personal">
+            Особисте
+          </option>
         </select>
 
         <p
@@ -337,9 +455,53 @@ function submitForm() {
       </div>
 
       <div class="tf4-field tf4-field--wide">
+        <label for="tf4-project">
+          Проєкт
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
+        </label>
+
+        <select
+          id="tf4-project"
+          v-model="form.projectId"
+          required
+          :aria-invalid="
+            showErrors && !!errors.projectId
+          "
+          :aria-describedby="
+            showErrors && errors.projectId
+              ? 'tf4-project-error'
+              : undefined
+          "
+        >
+          <option
+            v-for="project in availableProjects"
+            :key="project.id"
+            :value="project.id"
+          >
+            {{ project.title }}
+          </option>
+        </select>
+
+        <p
+          v-if="showErrors && errors.projectId"
+          id="tf4-project-error"
+          class="tf4-error"
+          role="alert"
+        >
+          {{ errors.projectId }}
+        </p>
+      </div>
+
+      <div class="tf4-field tf4-field--wide">
         <label for="tf4-date">
           Дата завершення
-          <span class="tf4-required" aria-hidden="true">*</span>
+          <span
+            class="tf4-required"
+            aria-hidden="true"
+          >*</span>
         </label>
 
         <input
@@ -347,9 +509,14 @@ function submitForm() {
           v-model="form.dueDate"
           type="date"
           required
-          :aria-invalid="showErrors && !!errors.dueDate"
-          :aria-describedby="showErrors && errors.dueDate
-            ? 'tf4-date-error' : undefined"
+          :aria-invalid="
+            showErrors && !!errors.dueDate
+          "
+          :aria-describedby="
+            showErrors && errors.dueDate
+              ? 'tf4-date-error'
+              : undefined
+          "
         />
 
         <p
@@ -366,7 +533,9 @@ function submitForm() {
         class="tf4-preview tf4-field--wide"
         aria-live="polite"
       >
-        <strong>Попередній перегляд</strong>
+        <strong>
+          Попередній перегляд
+        </strong>
 
         <p>
           {{ form.title || 'Назва нового завдання' }}
@@ -377,6 +546,10 @@ function submitForm() {
           {{ priorityLabels[form.priority] }} ·
           {{ categoryLabels[form.category] }}
         </span>
+
+        <p class="tf6-preview-project">
+          Проєкт: {{ selectedProjectTitle }}
+        </p>
       </div>
 
       <div class="tf4-actions tf4-field--wide">
@@ -384,7 +557,10 @@ function submitForm() {
           type="submit"
           class="tf4-save"
         >
-          {{ isEditing ? 'Зберегти зміни' : 'Створити завдання' }}
+          {{ isEditing
+            ? 'Зберегти зміни'
+            : 'Створити завдання'
+          }}
         </button>
 
         <button
@@ -420,4 +596,12 @@ function submitForm() {
 .tf4-field textarea[aria-invalid="true"] {
   border-color: #ff718b;
 }
+
+.tf6-preview-project {
+  margin-top: 12px;
+  color: #71d7ff;
+  font-size: 14px;
+  font-weight: 600;
+}
 </style>
+

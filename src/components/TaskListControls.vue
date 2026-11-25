@@ -1,6 +1,10 @@
 
 <script setup>
-defineProps({
+import { computed, ref } from 'vue'
+import { useTasksStore } from '../store/tasks'
+import { useProjectsStore } from '../store/projects'
+
+const props = defineProps({
   search: {
     type: String,
     default: ''
@@ -13,9 +17,17 @@ defineProps({
     type: String,
     default: 'all'
   },
+  project: {
+    type: String,
+    default: 'all'
+  },
   sort: {
     type: String,
     default: 'newest'
+  },
+  projects: {
+    type: Array,
+    default: () => []
   },
   onlyIncomplete: {
     type: Boolean,
@@ -27,20 +39,101 @@ const emit = defineEmits([
   'update:search',
   'update:status',
   'update:priority',
+  'update:project',
   'update:sort',
   'update:onlyIncomplete',
   'reset'
 ])
+
+const taskStore = useTasksStore()
+const projectStore = useProjectsStore()
+
+const bulkProjectId = ref('')
+const bulkMessage = ref('')
+
+const bulkProject = computed(() =>
+  projectStore.projectStats.find(
+    (item) => item.id === bulkProjectId.value
+  ) ?? null
+)
+
+const bulkCount = computed(() =>
+  bulkProject.value?.taskCount ?? 0
+)
+
+function updateSearch(event) {
+  emit('update:search', event.target.value)
+}
+
+function updateStatus(event) {
+  emit('update:status', event.target.value)
+}
+
+function updatePriority(event) {
+  emit('update:priority', event.target.value)
+}
+
+function updateProject(event) {
+  emit('update:project', event.target.value)
+}
+
+function updateSort(event) {
+  emit('update:sort', event.target.value)
+}
+
+function updateIncomplete(event) {
+  emit('update:onlyIncomplete', event.target.checked)
+}
+
+function updateNoDueDate(event) {
+  taskStore.onlyNoDueDate = event.target.checked
+}
+
+function clearSearch() {
+  emit('update:search', '')
+}
+
+function resetFilters() {
+  emit('reset')
+}
+
+function moveAllToProgress() {
+  if (!bulkProject.value || bulkCount.value === 0) {
+    return
+  }
+
+  const title = bulkProject.value.title
+  const count = bulkCount.value
+
+  const confirmed = window.confirm(
+    `Перевести всі ${count} завдань проєкту «${title}» у статус «У роботі»? Це також змінить уже виконані завдання.`
+  )
+
+  if (!confirmed) {
+    bulkMessage.value = 'Дію скасовано.'
+    return
+  }
+
+  const result = taskStore.moveProjectTasksToProgress(
+    bulkProjectId.value
+  )
+
+  if (result === null) {
+    bulkMessage.value = 'Не вдалося змінити статуси.'
+    return
+  }
+
+  bulkMessage.value =
+    `Успішно змінено статус ${result} завдань проєкту «${title}».`
+}
 </script>
 
 <template>
-  <section
-    class="tf5-panel"
-    aria-label="Пошук і фільтри"
-  >
+  <section class="tf5-panel">
     <h2>Пошук і впорядкування</h2>
 
     <div class="tf5-controls-grid">
+
       <label class="tf5-search">
         Пошук за назвою та описом
 
@@ -48,18 +141,18 @@ const emit = defineEmits([
           type="search"
           :value="search"
           placeholder="Введіть назву або опис..."
-          @input="emit('update:search', $event.target.value)"
+          @input="updateSearch"
         />
       </label>
 
       <div
         v-if="search.trim()"
-        class="tf5-search-actions"
+        class="tf6-clear-search"
       >
         <button
           type="button"
           class="tf5-btn"
-          @click="emit('update:search', '')"
+          @click="clearSearch"
         >
           Очистити пошук
         </button>
@@ -70,7 +163,7 @@ const emit = defineEmits([
 
         <select
           :value="status"
-          @change="emit('update:status', $event.target.value)"
+          @change="updateStatus"
         >
           <option value="all">Усі статуси</option>
           <option value="todo">Заплановано</option>
@@ -84,7 +177,7 @@ const emit = defineEmits([
 
         <select
           :value="priority"
-          @change="emit('update:priority', $event.target.value)"
+          @change="updatePriority"
         >
           <option value="all">Усі пріоритети</option>
           <option value="low">Низький</option>
@@ -94,169 +187,246 @@ const emit = defineEmits([
       </label>
 
       <label>
+        Проєкт
+
+        <select
+          :value="project"
+          @change="updateProject"
+        >
+          <option value="all">Усі проєкти</option>
+
+          <option
+            v-for="item in projects"
+            :key="item.id"
+            :value="item.id"
+          >
+            {{ item.title }}
+          </option>
+        </select>
+      </label>
+
+      <label>
         Сортування
 
         <select
           :value="sort"
-          @change="emit('update:sort', $event.target.value)"
+          @change="updateSort"
         >
-          <option value="newest">
-            Спочатку нові
-          </option>
-
-          <option value="title">
-            За назвою (А–Я)
-          </option>
-
+          <option value="newest">Спочатку нові</option>
+          <option value="title">За назвою (А–Я)</option>
           <option value="priority">
-            За пріоритетом (високий перший)
+            Високий пріоритет перший
           </option>
-
           <option value="low">
-            За пріоритетом (низький перший)
+            Низький пріоритет перший
           </option>
-
+          <option value="status">За статусом</option>
           <option value="dueDate">
-            За терміном (найближчий перший)
+            Найближчий термін перший
           </option>
-
           <option value="dueDateDesc">
-            За терміном (найдальший перший)
-          </option>
-
-          <option value="status">
-            За статусом
+            Найдальший термін перший
           </option>
         </select>
       </label>
+
     </div>
 
-    <label class="tf5-quick-filter">
-      <input
-        type="checkbox"
-        :checked="onlyIncomplete"
-        @change="emit('update:onlyIncomplete', $event.target.checked)"
-      />
+    <div class="tf6-checkboxes">
+      <label class="tf6-checkbox">
+        <input
+          type="checkbox"
+          :checked="onlyIncomplete"
+          @change="updateIncomplete"
+        />
+        Тільки невиконані завдання
+      </label>
 
-      Тільки невиконані
-    </label>
+      <label class="tf6-checkbox">
+        <input
+          type="checkbox"
+          :checked="taskStore.onlyNoDueDate"
+          @change="updateNoDueDate"
+        />
+        Лише без терміну
+      </label>
+    </div>
 
     <button
       type="button"
-      class="tf5-btn tf5-reset"
-      @click="emit('reset')"
+      class="tf5-btn tf6-reset"
+      @click="resetFilters"
     >
       Скинути фільтри
     </button>
+
+    <!-- Групова зміна статусів -->
+    <div class="tf6-bulk-panel">
+      <h3>Групова зміна статусів</h3>
+
+      <p>
+        Переведіть усі завдання вибраного проєкту
+        в статус «У роботі».
+      </p>
+
+      <div class="tf6-bulk-grid">
+        <label>
+          Виберіть проєкт
+
+          <select
+            v-model="bulkProjectId"
+            @change="bulkMessage = ''"
+          >
+            <option value="">Оберіть проєкт</option>
+
+            <option
+              v-for="item in projects"
+              :key="item.id"
+              :value="item.id"
+            >
+              {{ item.title }}
+            </option>
+          </select>
+        </label>
+
+        <button
+          type="button"
+          class="tf6-bulk-button"
+          :disabled="bulkCount === 0"
+          @click="moveAllToProgress"
+        >
+          Перевести всі у роботу
+        </button>
+      </div>
+
+      <p v-if="bulkProject" class="tf6-bulk-info">
+        Завдань у проєкті:
+        <strong>{{ bulkCount }}</strong>
+      </p>
+
+      <p
+        v-if="bulkMessage"
+        class="tf6-bulk-message"
+        role="status"
+      >
+        {{ bulkMessage }}
+      </p>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.tf5-panel {
-  margin: 22px 0;
-  padding: 20px;
-  border: 1px solid #28435f;
-  border-radius: 16px;
-  background: #13243a;
-  color: #edf4ff;
+.tf6-clear-search {
+  grid-column: 1 / -1;
 }
 
-.tf5-panel h2 {
-  margin: 0 0 18px;
-  font-size: 19px;
+.tf6-clear-search .tf5-btn {
+  width: 100%;
+}
+
+.tf6-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.tf6-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #d7e4f5;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tf6-checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: #39afe0;
+}
+
+.tf6-reset {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.tf6-bulk-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #385a7a;
+}
+
+.tf6-bulk-panel h3 {
+  margin: 0 0 10px;
   color: #ffffff;
+  font-size: 18px;
 }
 
-.tf5-controls-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.tf6-bulk-panel p {
+  color: #c2d3e7;
+  font-size: 13px;
 }
 
-.tf5-controls-grid label {
+.tf6-bulk-grid {
   display: grid;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.tf6-bulk-grid label {
+  display: grid;
+  gap: 8px;
   color: #d7e4f5;
   font-size: 13px;
   font-weight: 600;
 }
 
-.tf5-controls-grid input,
-.tf5-controls-grid select {
+.tf6-bulk-grid select {
   box-sizing: border-box;
-  display: block;
   width: 100%;
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   padding: 10px 12px;
   border: 1px solid #39526f;
   border-radius: 9px;
   background: #0c1728;
   color: #f0f7ff;
-  font: inherit;
 }
 
-.tf5-search,
-.tf5-search-actions {
-  grid-column: 1 / -1;
-}
-
-.tf5-search-actions {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.tf5-quick-filter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 20px 0;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.tf5-quick-filter input {
-  width: 18px;
-  height: 18px;
-  accent-color: #168fbd;
-}
-
-.tf5-btn {
-  min-height: 42px;
+.tf6-bulk-button {
+  min-height: 44px;
   padding: 10px 16px;
-  border: 1px solid #526c8c;
+  border: 1px solid #39afe0;
   border-radius: 9px;
-  background: #203550;
-  color: #eff7ff;
-  font: inherit;
-  font-weight: 600;
+  background: #168fbd;
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.tf5-btn:hover {
-  filter: brightness(1.12);
+.tf6-bulk-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.tf5-reset {
-  width: 100%;
-  background: #168fbd;
-  border-color: #39afe0;
-  color: #ffffff;
+.tf6-bulk-info strong {
+  color: #71d7ff;
+}
+
+.tf6-bulk-message {
+  padding: 10px;
+  border: 1px solid #385a7a;
+  border-radius: 9px;
+  background: #1a344f;
 }
 
 @media (max-width: 680px) {
-  .tf5-controls-grid {
+  .tf6-bulk-grid {
     grid-template-columns: 1fr;
-  }
-
-  .tf5-panel {
-    padding: 16px;
-  }
-
-  .tf5-search,
-  .tf5-search-actions {
-    grid-column: auto;
   }
 }
 </style>
