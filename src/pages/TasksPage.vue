@@ -2,6 +2,7 @@
 <script setup>
 import '../css/task-components.css'
 import '../css/task-form.css'
+import '../css/persistence.css'
 
 import { computed, nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -14,6 +15,10 @@ import TaskListControls from '../components/TaskListControls.vue'
 
 import { useTasksStore } from '../store/tasks'
 import { useProjectsStore } from '../store/projects'
+import {
+  persistenceState,
+  retrySave
+} from '../services/persistence'
 
 const taskStore = useTasksStore()
 const projectStore = useProjectsStore()
@@ -35,7 +40,25 @@ const {
   projectStats
 } = storeToRefs(projectStore)
 
-// Локальний стан сторінки
+// Стан локального збереження IndexedDB
+const saveMessage = computed(() => {
+  if (persistenceState.status === 'loading') {
+    return 'Завантаження локальних даних…'
+  }
+
+  if (persistenceState.status === 'saving') {
+    return 'Збереження змін у IndexedDB…'
+  }
+
+  if (persistenceState.status === 'saved') {
+    return 'Усі зміни збережено в цьому браузері.'
+  }
+
+  return persistenceState.error ||
+    'Не вдалося зберегти локальні дані.'
+})
+
+// Стан сторінки
 const selectedTaskId = ref(null)
 const formVisible = ref(false)
 const editingId = ref(null)
@@ -45,12 +68,12 @@ const feedback = ref('')
 const newProjectTitle = ref('')
 const newProjectError = ref('')
 
-// Проєкт для групового переведення завдань
+// Групова зміна статусів
 const bulkProjectId = ref('')
 
 const bulkProject = computed(() =>
   projectStats.value.find(
-    (project) => project.id === bulkProjectId.value
+    project => project.id === bulkProjectId.value
   ) ?? null
 )
 
@@ -60,17 +83,17 @@ const bulkTaskCount = computed(() =>
 
 const selectedTask = computed(() =>
   tasks.value.find(
-    (task) => task.id === selectedTaskId.value
+    task => task.id === selectedTaskId.value
   ) ?? null
 )
 
 const editingTask = computed(() =>
   tasks.value.find(
-    (task) => task.id === editingId.value
+    task => task.id === editingId.value
   ) ?? null
 )
 
-// Створення проєкту
+// Створення нового проєкту
 function createProject() {
   const project = projectStore.addProject(
     newProjectTitle.value
@@ -90,8 +113,7 @@ function createProject() {
     `Проєкт «${project.title}» створено.`
 }
 
-// Додаткове завдання №4:
-// Групова зміна статусів із підтвердженням
+// Групова зміна статусів
 function moveProjectTasksToProgress() {
   if (!bulkProject.value || bulkTaskCount.value === 0) {
     return
@@ -105,9 +127,7 @@ function moveProjectTasksToProgress() {
     `Перевести всі завдання проєкту «${projectTitle}» (${count}) у статус «У роботі»? Це також змінить статус уже виконаних завдань.`
   )
 
-  if (!confirmed) {
-    return
-  }
+  if (!confirmed) return
 
   const changedCount =
     taskStore.moveProjectTasksToProgress(projectId)
@@ -122,23 +142,27 @@ function moveProjectTasksToProgress() {
     `У проєкті «${projectTitle}» переведено ${changedCount} завдань у статус «У роботі».`
 }
 
-// Дії з картками
+// Зміна статусу одного завдання
 function handleStatusChange(payload) {
   taskStore.setTaskStatus(payload)
 }
 
+// Зміна пріоритету
 function handlePriorityChange(payload) {
   taskStore.setTaskPriority(payload)
 }
 
+// Вибір завдання
 function handleTaskSelect(payload) {
   selectedTaskId.value = payload.id
 }
 
+// Скидання фільтрів
 function resetFilters() {
   taskStore.resetFilters()
 }
 
+// Прокручування до форми
 async function scrollToForm() {
   await nextTick()
 
@@ -148,6 +172,7 @@ async function scrollToForm() {
   })
 }
 
+// Відкриття форми нового завдання
 async function createTask() {
   formVisible.value = false
   editingId.value = null
@@ -156,12 +181,14 @@ async function createTask() {
   await nextTick()
 
   formVisible.value = true
+
   await scrollToForm()
 }
 
+// Редагування завдання
 async function editTask(id) {
   const task = tasks.value.find(
-    (item) => item.id === Number(id)
+    item => item.id === Number(id)
   )
 
   if (!task) return
@@ -173,14 +200,17 @@ async function editTask(id) {
   await nextTick()
 
   formVisible.value = true
+
   await scrollToForm()
 }
 
+// Закриття форми
 function cancelForm() {
   formVisible.value = false
   editingId.value = null
 }
 
+// Збереження завдання через Pinia
 function saveTask(data) {
   const isEditing = editingId.value !== null
 
@@ -207,11 +237,12 @@ function saveTask(data) {
   taskStore.resetFilters()
 }
 
+// Видалення з підтвердженням
 function handleDelete(id) {
   const taskId = Number(id)
 
   const task = tasks.value.find(
-    (item) => item.id === taskId
+    item => item.id === taskId
   )
 
   if (!task) return
@@ -225,7 +256,8 @@ function handleDelete(id) {
   const deleted = taskStore.deleteTask(taskId)
 
   if (!deleted) {
-    feedback.value = 'Не вдалося видалити завдання.'
+    feedback.value =
+      'Не вдалося видалити завдання.'
     return
   }
 
@@ -247,6 +279,8 @@ function handleDelete(id) {
     <f7-navbar title="Мої завдання" />
 
     <div class="tf3-container">
+
+      <!-- Заголовок сторінки -->
       <section class="tf3-hero">
         <div class="tf3-eyebrow">
           TASKFLOW / TASK MANAGER
@@ -268,6 +302,7 @@ function handleDelete(id) {
         </button>
       </section>
 
+      <!-- Повідомлення про дії -->
       <p
         v-if="feedback"
         class="tf4-feedback"
@@ -276,7 +311,32 @@ function handleDelete(id) {
         {{ feedback }}
       </p>
 
-      <!-- Каталог проєктів -->
+      <!-- Нове: індикатор IndexedDB -->
+      <section
+        class="tf7-persistence"
+        :class="`tf7-persistence--${persistenceState.status}`"
+        role="status"
+        aria-live="polite"
+      >
+        <strong>
+          Локальне збереження
+        </strong>
+
+        <span>
+          {{ saveMessage }}
+        </span>
+
+        <button
+          v-if="persistenceState.canRetry"
+          type="button"
+          class="tf7-retry-button"
+          @click="retrySave"
+        >
+          Повторити збереження
+        </button>
+      </section>
+
+      <!-- Блок проєктів -->
       <section class="tf6-project-panel">
         <div class="tf3-eyebrow">
           TASKFLOW / PROJECTS
@@ -295,8 +355,13 @@ function handleDelete(id) {
             :key="project.id"
             class="tf6-project-item"
           >
-            <span>{{ project.title }}</span>
-            <strong>{{ project.taskCount }}</strong>
+            <span>
+              {{ project.title }}
+            </span>
+
+            <strong>
+              {{ project.taskCount }}
+            </strong>
           </div>
         </div>
 
@@ -334,9 +399,11 @@ function handleDelete(id) {
           {{ newProjectError }}
         </p>
 
-        <!-- Групове переведення завдань -->
+        <!-- Групова зміна статусів -->
         <div class="tf6-bulk-section">
-          <h3>Групова зміна статусів</h3>
+          <h3>
+            Групова зміна статусів
+          </h3>
 
           <p>
             Можна перевести всі завдання вибраного
@@ -382,12 +449,14 @@ function handleDelete(id) {
             class="tf6-bulk-count"
           >
             Завдань у проєкті:
-            <strong>{{ bulkTaskCount }}</strong>
+            <strong>
+              {{ bulkTaskCount }}
+            </strong>
           </p>
         </div>
       </section>
 
-      <!-- Форма завдання -->
+      <!-- Форма створення та редагування -->
       <section
         v-if="formVisible"
         ref="formAnchor"
@@ -402,7 +471,7 @@ function handleDelete(id) {
         />
       </section>
 
-      <!-- Пошук та фільтри -->
+      <!-- Пошук, сортування, фільтри -->
       <TaskListControls
         v-model:search="searchText"
         v-model:status="selectedStatus"
@@ -422,7 +491,9 @@ function handleDelete(id) {
               TASK LIST
             </div>
 
-            <h2>Список завдань</h2>
+            <h2>
+              Список завдань
+            </h2>
           </div>
 
           <div class="tf5-counter-group">
@@ -441,15 +512,20 @@ function handleDelete(id) {
           </div>
         </div>
 
+        <!-- Обране завдання -->
         <div
           v-if="selectedTask"
           class="tf3-selected-task"
           role="status"
         >
           Обрано завдання:
-          <strong>{{ selectedTask.title }}</strong>
+
+          <strong>
+            {{ selectedTask.title }}
+          </strong>
         </div>
 
+        <!-- Картки -->
         <div
           v-if="visibleTasks.length"
           class="tf3-task-grid"
@@ -470,16 +546,19 @@ function handleDelete(id) {
           />
         </div>
 
+        <!-- Коли немає жодного завдання -->
         <div
           v-else-if="tasks.length === 0"
           class="tf3-empty tf5-empty-state"
         >
-          <h3>Список завдань порожній</h3>
+          <h3>
+            Список завдань порожній
+          </h3>
 
           <p>
             Усі завдання видалено.
-            Створіть нове завдання, щоб
-            продовжити роботу.
+            Створіть нове завдання,
+            щоб продовжити роботу.
           </p>
 
           <button
@@ -491,11 +570,14 @@ function handleDelete(id) {
           </button>
         </div>
 
+        <!-- Якщо фільтри нічого не знайшли -->
         <div
           v-else
           class="tf3-empty tf5-empty-state"
         >
-          <h3>Завдань не знайдено</h3>
+          <h3>
+            Завдань не знайдено
+          </h3>
 
           <p>
             За поточними умовами пошуку
@@ -518,6 +600,7 @@ function handleDelete(id) {
 </template>
 
 <style scoped>
+/* Панель проєктів */
 .tf6-project-panel {
   margin: 24px 0;
   padding: 22px;
@@ -566,6 +649,7 @@ function handleDelete(id) {
   font-size: 15px;
 }
 
+/* Створення проєкту */
 .tf6-project-form,
 .tf6-bulk-grid {
   display: grid;
@@ -726,6 +810,7 @@ function handleDelete(id) {
   filter: brightness(1.12);
 }
 
+/* Обране завдання */
 .tf3-selected-task {
   margin-bottom: 18px;
   padding: 16px;
@@ -739,6 +824,7 @@ function handleDelete(id) {
   color: #58c7ef;
 }
 
+/* Статистика списку */
 .tf5-counter-group {
   display: flex;
   align-items: center;
@@ -764,6 +850,7 @@ function handleDelete(id) {
   font-weight: 700;
 }
 
+/* Порожній список */
 .tf5-empty-state {
   text-align: center;
 }
@@ -790,6 +877,7 @@ function handleDelete(id) {
   background: #126b96;
 }
 
+/* Адаптивність */
 @media (max-width: 680px) {
   .tf6-project-panel {
     padding: 16px;
